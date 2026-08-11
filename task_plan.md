@@ -14,6 +14,7 @@ Develop a trustworthy in-Blender render-time estimate that does not require arti
 - [x] Phase 6: Verify the report format and update documentation.
 - [x] Phase 7: Define the prediction approach from the first recorded benchmark.
 - [x] Phase 8: Implement an on-demand pilot-render estimator.
+- [x] Phase 9: Reuse a valid pilot calibration when only target sample count changes.
 
 ## Key Questions
 
@@ -28,6 +29,7 @@ Develop a trustworthy in-Blender render-time estimate that does not require arti
 - [First feature]: Report the active Cycles configuration and write a JSON snapshot beside the `.blend` file (or Blender's temporary directory).
 - [Benchmark behavior]: Render comma-separated sample counts sequentially and restore the original sample count and output path in a `finally` block.
 - [Prediction approach]: Start with an opt-in, low-sample pilot render on the current scene and local machine; extrapolate to the artist's target samples, report an uncertainty range, and learn from completed normal renders.
+- [Calibration reuse]: Keep the fitted setup cost and per-sample rate in the active scene. Recalculate instantly for a new target when a fingerprint of the core render settings still matches.
 
 ## Errors Encountered
 
@@ -36,4 +38,4 @@ Develop a trustworthy in-Blender render-time estimate that does not require arti
 
 ## Status
 
-**Complete** — the add-on now fits a two-point local estimate, displays an uncertainty range, and writes an audit report.
+**Complete** — changing only target samples recalculates instantly; tracked core settings trigger a recalibration prompt.

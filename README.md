@@ -26,6 +26,8 @@ The default pilots are 16 and 64 samples. Their timings are fitted to a simple l
 
 Each estimate is recorded as `reports/estimate-<timestamp>/estimate.json`. The estimate is scene- and machine-specific; rerun it after material scene, engine, device, resolution, or render-setting changes.
 
+Changing only **Target max samples** does not run pilots again. The sidebar immediately recalculates from the existing calibration. Core settings such as resolution, device, adaptive sampling, denoising, and ray-bounce limits invalidate that calibration and show a recalibration prompt.
+
 ## Development target
 
 Use Blender 4.2 or later. The add-on uses only Blender's bundled Python API and has no external dependencies.

@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Budget My Render",
     "author": "Abhinav Chdhary",
-    "version": (0, 3, 0),
+    "version": (0, 4, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Render Budget",
     "description": "Estimate Cycles render time from opt-in local pilot renders",
@@ -79,6 +79,46 @@ def format_duration(seconds):
     rounded_seconds = max(0, round(seconds))
     minutes, seconds = divmod(rounded_seconds, 60)
     return f"{minutes}m {seconds:02d}s" if minutes else f"{seconds}s"
+
+
+def render_settings_fingerprint(scene):
+    cycles = scene.cycles
+    settings = {
+        "engine": scene.render.engine,
+        "resolution": [scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage],
+        "device": optional_setting(cycles, "device"),
+        "adaptive_sampling": optional_setting(cycles, "use_adaptive_sampling"),
+        "adaptive_threshold": optional_setting(cycles, "adaptive_threshold"),
+        "denoising": optional_setting(cycles, "use_denoising"),
+        "bounces": {
+            name: optional_setting(cycles, name)
+            for name in ("max_bounces", "diffuse_bounces", "glossy_bounces", "transmission_bounces", "volume_bounces", "transparent_max_bounces")
+        },
+    }
+    return json.dumps(settings, sort_keys=True, separators=(",", ":"))
+
+
+def calibration_is_valid(scene):
+    return bool(scene.render_budget_calibration_available) and (
+        scene.render_budget_calibration_fingerprint == render_settings_fingerprint(scene)
+    )
+
+
+def estimate_from_calibration(scene):
+    predicted_seconds = max(
+        0.0,
+        scene.render_budget_calibration_setup_seconds
+        + scene.render_budget_target_samples * scene.render_budget_calibration_seconds_per_sample,
+    )
+    adaptive_sampling = bool(optional_setting(scene.cycles, "use_adaptive_sampling"))
+    uncertainty = 0.5 if adaptive_sampling else 0.25
+    return {
+        "seconds": predicted_seconds,
+        "lower_seconds": max(0.0, predicted_seconds * (1 - uncertainty)),
+        "upper_seconds": predicted_seconds * (1 + uncertainty),
+        "confidence": "low" if adaptive_sampling else "medium",
+        "adaptive_sampling": adaptive_sampling,
+    }
 
 
 def build_snapshot(scene):
@@ -219,12 +259,12 @@ class RENDERBUDGET_OT_estimate_render_time(bpy.types.Operator):
         finally:
             cycles.samples = original_samples
 
-        predicted_seconds, seconds_per_sample, setup_seconds = estimate_seconds(pilot_runs, scene.render_budget_target_samples)
-        adaptive_sampling = bool(optional_setting(cycles, "use_adaptive_sampling"))
-        uncertainty = 0.5 if adaptive_sampling else 0.25
-        confidence = "low" if adaptive_sampling else "medium"
-        lower_seconds = max(0.0, predicted_seconds * (1 - uncertainty))
-        upper_seconds = predicted_seconds * (1 + uncertainty)
+        _, seconds_per_sample, setup_seconds = estimate_seconds(pilot_runs, scene.render_budget_target_samples)
+        scene.render_budget_calibration_seconds_per_sample = seconds_per_sample
+        scene.render_budget_calibration_setup_seconds = setup_seconds
+        scene.render_budget_calibration_fingerprint = render_settings_fingerprint(scene)
+        scene.render_budget_calibration_available = True
+        estimate = estimate_from_calibration(scene)
         report = {
             "schema_version": 3,
             "kind": "cycles_render_time_estimate",
@@ -239,20 +279,15 @@ class RENDERBUDGET_OT_estimate_render_time(bpy.types.Operator):
                 "setup_seconds": round(setup_seconds, 3),
             },
             "estimate": {
-                "seconds": round(predicted_seconds, 3),
-                "range_seconds": [round(lower_seconds, 3), round(upper_seconds, 3)],
-                "confidence": confidence,
-                "adaptive_sampling": adaptive_sampling,
+                "seconds": round(estimate["seconds"], 3),
+                "range_seconds": [round(estimate["lower_seconds"], 3), round(estimate["upper_seconds"], 3)],
+                "confidence": estimate["confidence"],
+                "adaptive_sampling": estimate["adaptive_sampling"],
             },
         }
         report_path = report_directory / "estimate.json"
         report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-        scene.render_budget_estimate_seconds = predicted_seconds
-        scene.render_budget_estimate_lower_seconds = lower_seconds
-        scene.render_budget_estimate_upper_seconds = upper_seconds
-        scene.render_budget_estimate_target_samples = scene.render_budget_target_samples
-        scene.render_budget_estimate_confidence = confidence
-        self.report({"INFO"}, f"Estimated render time: {format_duration(predicted_seconds)}")
+        self.report({"INFO"}, f"Estimated render time: {format_duration(estimate['seconds'])}")
         return {"FINISHED"}
 
 
@@ -285,17 +320,19 @@ class RENDERBUDGET_PT_main(bpy.types.Panel):
         estimate_box.prop(scene, "render_budget_target_samples")
         estimate_box.prop(scene, "render_budget_pilot_samples")
         estimate_box.label(text="Pilot renders use CPU/GPU.", icon="INFO")
-        estimate_box.operator(RENDERBUDGET_OT_estimate_render_time.bl_idname, icon="TIME")
-
-        if scene.render_budget_estimate_target_samples == scene.render_budget_target_samples:
+        if calibration_is_valid(scene):
+            estimate_box.operator(RENDERBUDGET_OT_estimate_render_time.bl_idname, text="Refresh calibration", icon="TIME")
+            estimate = estimate_from_calibration(scene)
             estimate_box.separator()
-            estimate_box.label(text=f"Estimate: ~{format_duration(scene.render_budget_estimate_seconds)}")
+            estimate_box.label(text=f"Estimate: ~{format_duration(estimate['seconds'])}")
             estimate_box.label(text=(
-                f"Range: {format_duration(scene.render_budget_estimate_lower_seconds)}–"
-                f"{format_duration(scene.render_budget_estimate_upper_seconds)} ({scene.render_budget_estimate_confidence})"
+                f"Range: {format_duration(estimate['lower_seconds'])}–"
+                f"{format_duration(estimate['upper_seconds'])} ({estimate['confidence']})"
             ))
-        elif scene.render_budget_estimate_target_samples:
-            estimate_box.label(text="Target changed — run estimate again.", icon="INFO")
+        else:
+            estimate_box.operator(RENDERBUDGET_OT_estimate_render_time.bl_idname, icon="TIME")
+            if scene.render_budget_calibration_available:
+                estimate_box.label(text="Core settings changed — recalibrate.", icon="INFO")
 
 
 classes = (
@@ -325,22 +362,20 @@ def register():
         description="Exactly two comma-separated Cycles max sample counts used for calibration",
         default="16, 64",
     )
-    bpy.types.Scene.render_budget_estimate_seconds = bpy.props.FloatProperty(default=0.0, min=0.0)
-    bpy.types.Scene.render_budget_estimate_lower_seconds = bpy.props.FloatProperty(default=0.0, min=0.0)
-    bpy.types.Scene.render_budget_estimate_upper_seconds = bpy.props.FloatProperty(default=0.0, min=0.0)
-    bpy.types.Scene.render_budget_estimate_target_samples = bpy.props.IntProperty(default=0, min=0)
-    bpy.types.Scene.render_budget_estimate_confidence = bpy.props.StringProperty(default="")
+    bpy.types.Scene.render_budget_calibration_seconds_per_sample = bpy.props.FloatProperty(default=0.0, min=0.0)
+    bpy.types.Scene.render_budget_calibration_setup_seconds = bpy.props.FloatProperty(default=0.0)
+    bpy.types.Scene.render_budget_calibration_fingerprint = bpy.props.StringProperty(default="")
+    bpy.types.Scene.render_budget_calibration_available = bpy.props.BoolProperty(default=False)
 
 
 def unregister():
     del bpy.types.Scene.render_budget_sample_counts
     del bpy.types.Scene.render_budget_target_samples
     del bpy.types.Scene.render_budget_pilot_samples
-    del bpy.types.Scene.render_budget_estimate_seconds
-    del bpy.types.Scene.render_budget_estimate_lower_seconds
-    del bpy.types.Scene.render_budget_estimate_upper_seconds
-    del bpy.types.Scene.render_budget_estimate_target_samples
-    del bpy.types.Scene.render_budget_estimate_confidence
+    del bpy.types.Scene.render_budget_calibration_seconds_per_sample
+    del bpy.types.Scene.render_budget_calibration_setup_seconds
+    del bpy.types.Scene.render_budget_calibration_fingerprint
+    del bpy.types.Scene.render_budget_calibration_available
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 
