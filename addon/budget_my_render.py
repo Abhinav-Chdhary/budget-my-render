@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Budget My Render",
     "author": "Abhinav Chdhary",
-    "version": (0, 4, 0),
+    "version": (0, 5, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Render Budget",
     "description": "Estimate Cycles render time from opt-in local pilot renders",
@@ -21,12 +21,6 @@ def optional_setting(settings, name):
     return getattr(settings, name, None)
 
 
-def snapshot_path():
-    report_directory = reports_directory()
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return report_directory / f"render-settings-{timestamp}.json"
-
-
 def reports_directory():
     if bpy.data.filepath:
         report_directory = Path(bpy.data.filepath).parent / "reports"
@@ -34,10 +28,6 @@ def reports_directory():
         report_directory = Path(tempfile.gettempdir()) / "budget-my-render"
     report_directory.mkdir(parents=True, exist_ok=True)
     return report_directory
-
-
-def benchmark_directory():
-    return timestamped_report_directory("benchmark")
 
 
 def estimate_directory():
@@ -49,23 +39,6 @@ def timestamped_report_directory(prefix):
     directory = reports_directory() / f"{prefix}-{timestamp}"
     directory.mkdir(parents=True, exist_ok=False)
     return directory
-
-
-def parse_sample_counts(value):
-    try:
-        sample_counts = [int(item.strip()) for item in value.split(",") if item.strip()]
-    except ValueError as error:
-        raise ValueError("Sample counts must be comma-separated whole numbers.") from error
-    if not sample_counts or any(sample_count < 1 for sample_count in sample_counts):
-        raise ValueError("Enter at least one sample count greater than zero.")
-    return sample_counts
-
-
-def parse_pilot_sample_counts(value):
-    sample_counts = parse_sample_counts(value)
-    if len(sample_counts) != 2 or len(set(sample_counts)) != 2:
-        raise ValueError("Pilot samples must contain exactly two different values.")
-    return sorted(sample_counts)
 
 
 def estimate_seconds(pilot_runs, target_samples):
@@ -108,7 +81,7 @@ def estimate_from_calibration(scene):
     predicted_seconds = max(
         0.0,
         scene.render_budget_calibration_setup_seconds
-        + scene.render_budget_target_samples * scene.render_budget_calibration_seconds_per_sample,
+        + scene.cycles.samples * scene.render_budget_calibration_seconds_per_sample,
     )
     adaptive_sampling = bool(optional_setting(scene.cycles, "use_adaptive_sampling"))
     uncertainty = 0.5 if adaptive_sampling else 0.25
@@ -143,87 +116,10 @@ def build_snapshot(scene):
     }
 
 
-class RENDERBUDGET_OT_capture_settings(bpy.types.Operator):
-    bl_idname = "render_budget.capture_settings"
-    bl_label = "Capture Settings Snapshot"
-    bl_description = "Write the current Cycles render settings to a JSON report"
-
-    def execute(self, context):
-        scene = context.scene
-        if scene.render.engine != "CYCLES":
-            self.report({"WARNING"}, "Select Cycles before capturing a render budget")
-            return {"CANCELLED"}
-
-        output_path = snapshot_path()
-        output_path.write_text(json.dumps(build_snapshot(scene), indent=2) + "\n", encoding="utf-8")
-        self.report({"INFO"}, f"Saved snapshot: {output_path.name}")
-        return {"FINISHED"}
-
-
-class RENDERBUDGET_OT_run_benchmark(bpy.types.Operator):
-    bl_idname = "render_budget.run_benchmark"
-    bl_label = "Run Sample Benchmark"
-    bl_description = "Render each sample count, save images, and write timings to a JSON report"
-
-    def execute(self, context):
-        scene = context.scene
-        if scene.render.engine != "CYCLES":
-            self.report({"WARNING"}, "Select Cycles before running a benchmark")
-            return {"CANCELLED"}
-
-        try:
-            sample_counts = parse_sample_counts(scene.render_budget_sample_counts)
-        except ValueError as error:
-            self.report({"ERROR"}, str(error))
-            return {"CANCELLED"}
-
-        cycles = scene.cycles
-        original_samples = cycles.samples
-        original_filepath = scene.render.filepath
-        run_directory = benchmark_directory()
-        started_at = datetime.now(timezone.utc).isoformat()
-        runs = []
-
-        try:
-            for sample_count in sample_counts:
-                cycles.samples = sample_count
-                scene.render.filepath = str(run_directory / f"{sample_count}-samples")
-                started = time.perf_counter()
-                bpy.ops.render.render(write_still=True)
-                elapsed_seconds = time.perf_counter() - started
-                runs.append({
-                    "samples": sample_count,
-                    "elapsed_seconds": round(elapsed_seconds, 3),
-                    "image_path": f"{sample_count}-samples",
-                    "image_format": scene.render.image_settings.file_format,
-                    "settings": build_snapshot(scene),
-                })
-        except RuntimeError as error:
-            self.report({"ERROR"}, f"Benchmark stopped: {error}")
-            return {"CANCELLED"}
-        finally:
-            cycles.samples = original_samples
-            scene.render.filepath = original_filepath
-
-        report = {
-            "schema_version": 2,
-            "kind": "cycles_sample_benchmark",
-            "started_at": started_at,
-            "finished_at": datetime.now(timezone.utc).isoformat(),
-            "blend_file": bpy.data.filepath or None,
-            "sample_counts": sample_counts,
-            "runs": runs,
-        }
-        report_path = run_directory / "benchmark.json"
-        report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-        self.report({"INFO"}, f"Completed {len(runs)} renders: {report_path.name}")
-        return {"FINISHED"}
-
-
 class RENDERBUDGET_OT_estimate_render_time(bpy.types.Operator):
     bl_idname = "render_budget.estimate_render_time"
     bl_label = "Estimate Render Time"
-    bl_description = "Run two low-sample pilot renders and estimate the selected Cycles sample count"
+    bl_description = "Run two low-sample pilot renders and estimate the current Cycles Max Samples value"
 
     def execute(self, context):
         scene = context.scene
@@ -231,20 +127,15 @@ class RENDERBUDGET_OT_estimate_render_time(bpy.types.Operator):
             self.report({"WARNING"}, "Select Cycles before estimating render time")
             return {"CANCELLED"}
 
-        try:
-            pilot_samples = parse_pilot_sample_counts(scene.render_budget_pilot_samples)
-        except ValueError as error:
-            self.report({"ERROR"}, str(error))
-            return {"CANCELLED"}
-
         cycles = scene.cycles
+        target_samples = cycles.samples
         original_samples = cycles.samples
         started_at = datetime.now(timezone.utc).isoformat()
         report_directory = estimate_directory()
         pilot_runs = []
 
         try:
-            for sample_count in pilot_samples:
+            for sample_count in (16, 64):
                 cycles.samples = sample_count
                 started = time.perf_counter()
                 bpy.ops.render.render()
@@ -259,7 +150,7 @@ class RENDERBUDGET_OT_estimate_render_time(bpy.types.Operator):
         finally:
             cycles.samples = original_samples
 
-        _, seconds_per_sample, setup_seconds = estimate_seconds(pilot_runs, scene.render_budget_target_samples)
+        _, seconds_per_sample, setup_seconds = estimate_seconds(pilot_runs, target_samples)
         scene.render_budget_calibration_seconds_per_sample = seconds_per_sample
         scene.render_budget_calibration_setup_seconds = setup_seconds
         scene.render_budget_calibration_fingerprint = render_settings_fingerprint(scene)
@@ -271,7 +162,7 @@ class RENDERBUDGET_OT_estimate_render_time(bpy.types.Operator):
             "started_at": started_at,
             "finished_at": datetime.now(timezone.utc).isoformat(),
             "blend_file": bpy.data.filepath or None,
-            "target_samples": scene.render_budget_target_samples,
+            "target_samples": target_samples,
             "pilot_runs": pilot_runs,
             "model": {
                 "kind": "two_point_linear_extrapolation",
@@ -308,20 +199,11 @@ class RENDERBUDGET_PT_main(bpy.types.Panel):
 
         cycles = scene.cycles
         layout.label(text=f"Resolution: {scene.render.resolution_x} × {scene.render.resolution_y}")
-        layout.label(text=f"Current max samples: {cycles.samples}")
-        layout.operator(RENDERBUDGET_OT_capture_settings.bl_idname, icon="FILE_TICK")
-        layout.separator()
-        layout.prop(scene, "render_budget_sample_counts")
-        layout.label(text="Renders run one at a time.", icon="INFO")
-        layout.operator(RENDERBUDGET_OT_run_benchmark.bl_idname, icon="RENDER_STILL")
-        layout.separator()
+        layout.label(text=f"Cycles max samples: {cycles.samples}")
         estimate_box = layout.box()
-        estimate_box.label(text="Estimate final render")
-        estimate_box.prop(scene, "render_budget_target_samples")
-        estimate_box.prop(scene, "render_budget_pilot_samples")
-        estimate_box.label(text="Pilot renders use CPU/GPU.", icon="INFO")
+        estimate_box.label(text="Estimate this render")
         if calibration_is_valid(scene):
-            estimate_box.operator(RENDERBUDGET_OT_estimate_render_time.bl_idname, text="Refresh calibration", icon="TIME")
+            estimate_box.operator(RENDERBUDGET_OT_estimate_render_time.bl_idname, text="Estimate render time", icon="TIME")
             estimate = estimate_from_calibration(scene)
             estimate_box.separator()
             estimate_box.label(text=f"Estimate: ~{format_duration(estimate['seconds'])}")
@@ -330,38 +212,17 @@ class RENDERBUDGET_PT_main(bpy.types.Panel):
                 f"{format_duration(estimate['upper_seconds'])} ({estimate['confidence']})"
             ))
         else:
-            estimate_box.operator(RENDERBUDGET_OT_estimate_render_time.bl_idname, icon="TIME")
+            estimate_box.operator(RENDERBUDGET_OT_estimate_render_time.bl_idname, text="Estimate render time", icon="TIME")
             if scene.render_budget_calibration_available:
                 estimate_box.label(text="Core settings changed — recalibrate.", icon="INFO")
 
 
-classes = (
-    RENDERBUDGET_OT_capture_settings,
-    RENDERBUDGET_OT_run_benchmark,
-    RENDERBUDGET_OT_estimate_render_time,
-    RENDERBUDGET_PT_main,
-)
+classes = (RENDERBUDGET_OT_estimate_render_time, RENDERBUDGET_PT_main)
 
 
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-    bpy.types.Scene.render_budget_sample_counts = bpy.props.StringProperty(
-        name="Max samples",
-        description="Comma-separated Cycles max sample counts to render",
-        default="16, 64, 256, 1024",
-    )
-    bpy.types.Scene.render_budget_target_samples = bpy.props.IntProperty(
-        name="Target max samples",
-        description="Cycles max samples to estimate",
-        default=256,
-        min=1,
-    )
-    bpy.types.Scene.render_budget_pilot_samples = bpy.props.StringProperty(
-        name="Pilot samples",
-        description="Exactly two comma-separated Cycles max sample counts used for calibration",
-        default="16, 64",
-    )
     bpy.types.Scene.render_budget_calibration_seconds_per_sample = bpy.props.FloatProperty(default=0.0, min=0.0)
     bpy.types.Scene.render_budget_calibration_setup_seconds = bpy.props.FloatProperty(default=0.0)
     bpy.types.Scene.render_budget_calibration_fingerprint = bpy.props.StringProperty(default="")
@@ -369,9 +230,6 @@ def register():
 
 
 def unregister():
-    del bpy.types.Scene.render_budget_sample_counts
-    del bpy.types.Scene.render_budget_target_samples
-    del bpy.types.Scene.render_budget_pilot_samples
     del bpy.types.Scene.render_budget_calibration_seconds_per_sample
     del bpy.types.Scene.render_budget_calibration_setup_seconds
     del bpy.types.Scene.render_budget_calibration_fingerprint

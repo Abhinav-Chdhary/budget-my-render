@@ -15,6 +15,7 @@ Develop a trustworthy in-Blender render-time estimate that does not require arti
 - [x] Phase 7: Define the prediction approach from the first recorded benchmark.
 - [x] Phase 8: Implement an on-demand pilot-render estimator.
 - [x] Phase 9: Reuse a valid pilot calibration when only target sample count changes.
+- [x] Phase 10: Reduce the artist-facing panel to the single estimate action.
 
 ## Key Questions
 
@@ -30,6 +31,7 @@ Develop a trustworthy in-Blender render-time estimate that does not require arti
 - [Benchmark behavior]: Render comma-separated sample counts sequentially and restore the original sample count and output path in a `finally` block.
 - [Prediction approach]: Start with an opt-in, low-sample pilot render on the current scene and local machine; extrapolate to the artist's target samples, report an uncertainty range, and learn from completed normal renders.
 - [Calibration reuse]: Keep the fitted setup cost and per-sample rate in the active scene. Recalculate instantly for a new target when a fingerprint of the core render settings still matches.
+- [Artist UI]: Use Cycles' own Max Samples field as the target, hide calibration inputs, and expose only the estimate/refresh action.
 
 ## Errors Encountered
 
@@ -38,4 +40,4 @@ Develop a trustworthy in-Blender render-time estimate that does not require arti
 
 ## Status
 
-**Complete** — changing only target samples recalculates instantly; tracked core settings trigger a recalibration prompt.
+**Complete** — the panel has one action and uses Cycles' native Max Samples as its target.
