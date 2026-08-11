@@ -1,10 +1,10 @@
 bl_info = {
     "name": "Budget My Render",
     "author": "Abhinav Chdhary",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Render Budget",
-    "description": "Benchmark Cycles sample counts and save reproducible reports",
+    "description": "Estimate Cycles render time from opt-in local pilot renders",
     "category": "Render",
 }
 
@@ -37,8 +37,16 @@ def reports_directory():
 
 
 def benchmark_directory():
+    return timestamped_report_directory("benchmark")
+
+
+def estimate_directory():
+    return timestamped_report_directory("estimate")
+
+
+def timestamped_report_directory(prefix):
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    directory = reports_directory() / f"benchmark-{timestamp}"
+    directory = reports_directory() / f"{prefix}-{timestamp}"
     directory.mkdir(parents=True, exist_ok=False)
     return directory
 
@@ -51,6 +59,26 @@ def parse_sample_counts(value):
     if not sample_counts or any(sample_count < 1 for sample_count in sample_counts):
         raise ValueError("Enter at least one sample count greater than zero.")
     return sample_counts
+
+
+def parse_pilot_sample_counts(value):
+    sample_counts = parse_sample_counts(value)
+    if len(sample_counts) != 2 or len(set(sample_counts)) != 2:
+        raise ValueError("Pilot samples must contain exactly two different values.")
+    return sorted(sample_counts)
+
+
+def estimate_seconds(pilot_runs, target_samples):
+    lower, upper = pilot_runs
+    seconds_per_sample = (upper["elapsed_seconds"] - lower["elapsed_seconds"]) / (upper["samples"] - lower["samples"])
+    setup_seconds = lower["elapsed_seconds"] - lower["samples"] * seconds_per_sample
+    return max(0.0, setup_seconds + target_samples * seconds_per_sample), seconds_per_sample, setup_seconds
+
+
+def format_duration(seconds):
+    rounded_seconds = max(0, round(seconds))
+    minutes, seconds = divmod(rounded_seconds, 60)
+    return f"{minutes}m {seconds:02d}s" if minutes else f"{seconds}s"
 
 
 def build_snapshot(scene):
@@ -152,6 +180,82 @@ class RENDERBUDGET_OT_run_benchmark(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class RENDERBUDGET_OT_estimate_render_time(bpy.types.Operator):
+    bl_idname = "render_budget.estimate_render_time"
+    bl_label = "Estimate Render Time"
+    bl_description = "Run two low-sample pilot renders and estimate the selected Cycles sample count"
+
+    def execute(self, context):
+        scene = context.scene
+        if scene.render.engine != "CYCLES":
+            self.report({"WARNING"}, "Select Cycles before estimating render time")
+            return {"CANCELLED"}
+
+        try:
+            pilot_samples = parse_pilot_sample_counts(scene.render_budget_pilot_samples)
+        except ValueError as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+
+        cycles = scene.cycles
+        original_samples = cycles.samples
+        started_at = datetime.now(timezone.utc).isoformat()
+        report_directory = estimate_directory()
+        pilot_runs = []
+
+        try:
+            for sample_count in pilot_samples:
+                cycles.samples = sample_count
+                started = time.perf_counter()
+                bpy.ops.render.render()
+                pilot_runs.append({
+                    "samples": sample_count,
+                    "elapsed_seconds": round(time.perf_counter() - started, 3),
+                    "settings": build_snapshot(scene),
+                })
+        except RuntimeError as error:
+            self.report({"ERROR"}, f"Estimate stopped: {error}")
+            return {"CANCELLED"}
+        finally:
+            cycles.samples = original_samples
+
+        predicted_seconds, seconds_per_sample, setup_seconds = estimate_seconds(pilot_runs, scene.render_budget_target_samples)
+        adaptive_sampling = bool(optional_setting(cycles, "use_adaptive_sampling"))
+        uncertainty = 0.5 if adaptive_sampling else 0.25
+        confidence = "low" if adaptive_sampling else "medium"
+        lower_seconds = max(0.0, predicted_seconds * (1 - uncertainty))
+        upper_seconds = predicted_seconds * (1 + uncertainty)
+        report = {
+            "schema_version": 3,
+            "kind": "cycles_render_time_estimate",
+            "started_at": started_at,
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "blend_file": bpy.data.filepath or None,
+            "target_samples": scene.render_budget_target_samples,
+            "pilot_runs": pilot_runs,
+            "model": {
+                "kind": "two_point_linear_extrapolation",
+                "seconds_per_sample": round(seconds_per_sample, 6),
+                "setup_seconds": round(setup_seconds, 3),
+            },
+            "estimate": {
+                "seconds": round(predicted_seconds, 3),
+                "range_seconds": [round(lower_seconds, 3), round(upper_seconds, 3)],
+                "confidence": confidence,
+                "adaptive_sampling": adaptive_sampling,
+            },
+        }
+        report_path = report_directory / "estimate.json"
+        report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        scene.render_budget_estimate_seconds = predicted_seconds
+        scene.render_budget_estimate_lower_seconds = lower_seconds
+        scene.render_budget_estimate_upper_seconds = upper_seconds
+        scene.render_budget_estimate_target_samples = scene.render_budget_target_samples
+        scene.render_budget_estimate_confidence = confidence
+        self.report({"INFO"}, f"Estimated render time: {format_duration(predicted_seconds)}")
+        return {"FINISHED"}
+
+
 class RENDERBUDGET_PT_main(bpy.types.Panel):
     bl_label = "Budget My Render"
     bl_idname = "RENDERBUDGET_PT_main"
@@ -175,9 +279,31 @@ class RENDERBUDGET_PT_main(bpy.types.Panel):
         layout.prop(scene, "render_budget_sample_counts")
         layout.label(text="Renders run one at a time.", icon="INFO")
         layout.operator(RENDERBUDGET_OT_run_benchmark.bl_idname, icon="RENDER_STILL")
+        layout.separator()
+        estimate_box = layout.box()
+        estimate_box.label(text="Estimate final render")
+        estimate_box.prop(scene, "render_budget_target_samples")
+        estimate_box.prop(scene, "render_budget_pilot_samples")
+        estimate_box.label(text="Pilot renders use CPU/GPU.", icon="INFO")
+        estimate_box.operator(RENDERBUDGET_OT_estimate_render_time.bl_idname, icon="TIME")
+
+        if scene.render_budget_estimate_target_samples == scene.render_budget_target_samples:
+            estimate_box.separator()
+            estimate_box.label(text=f"Estimate: ~{format_duration(scene.render_budget_estimate_seconds)}")
+            estimate_box.label(text=(
+                f"Range: {format_duration(scene.render_budget_estimate_lower_seconds)}–"
+                f"{format_duration(scene.render_budget_estimate_upper_seconds)} ({scene.render_budget_estimate_confidence})"
+            ))
+        elif scene.render_budget_estimate_target_samples:
+            estimate_box.label(text="Target changed — run estimate again.", icon="INFO")
 
 
-classes = (RENDERBUDGET_OT_capture_settings, RENDERBUDGET_OT_run_benchmark, RENDERBUDGET_PT_main)
+classes = (
+    RENDERBUDGET_OT_capture_settings,
+    RENDERBUDGET_OT_run_benchmark,
+    RENDERBUDGET_OT_estimate_render_time,
+    RENDERBUDGET_PT_main,
+)
 
 
 def register():
@@ -188,10 +314,33 @@ def register():
         description="Comma-separated Cycles max sample counts to render",
         default="16, 64, 256, 1024",
     )
+    bpy.types.Scene.render_budget_target_samples = bpy.props.IntProperty(
+        name="Target max samples",
+        description="Cycles max samples to estimate",
+        default=256,
+        min=1,
+    )
+    bpy.types.Scene.render_budget_pilot_samples = bpy.props.StringProperty(
+        name="Pilot samples",
+        description="Exactly two comma-separated Cycles max sample counts used for calibration",
+        default="16, 64",
+    )
+    bpy.types.Scene.render_budget_estimate_seconds = bpy.props.FloatProperty(default=0.0, min=0.0)
+    bpy.types.Scene.render_budget_estimate_lower_seconds = bpy.props.FloatProperty(default=0.0, min=0.0)
+    bpy.types.Scene.render_budget_estimate_upper_seconds = bpy.props.FloatProperty(default=0.0, min=0.0)
+    bpy.types.Scene.render_budget_estimate_target_samples = bpy.props.IntProperty(default=0, min=0)
+    bpy.types.Scene.render_budget_estimate_confidence = bpy.props.StringProperty(default="")
 
 
 def unregister():
     del bpy.types.Scene.render_budget_sample_counts
+    del bpy.types.Scene.render_budget_target_samples
+    del bpy.types.Scene.render_budget_pilot_samples
+    del bpy.types.Scene.render_budget_estimate_seconds
+    del bpy.types.Scene.render_budget_estimate_lower_seconds
+    del bpy.types.Scene.render_budget_estimate_upper_seconds
+    del bpy.types.Scene.render_budget_estimate_target_samples
+    del bpy.types.Scene.render_budget_estimate_confidence
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 

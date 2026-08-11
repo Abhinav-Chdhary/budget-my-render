@@ -18,6 +18,14 @@ If the current `.blend` file has been saved, each run is written to a sibling `r
 
 The runner restores the scene's original max-samples value and render output path when it finishes or a render errors. It does not change adaptive sampling, denoising, resolution, device, or any other quality setting: hold those constant for a fair comparison.
 
+## Estimate render time
+
+The **Estimate final render** panel runs two opt-in pilot renders of the current scene and local machine, then estimates the time for the selected target max-samples value. It does not save pilot images, but it does use the same CPU or GPU resources as a normal Cycles render while the pilots run.
+
+The default pilots are 16 and 64 samples. Their timings are fitted to a simple linear model that includes setup time, and the sidebar displays both an estimate and an uncertainty range. With adaptive sampling enabled, the selected target is a maximum rather than a fixed sample count, so the add-on marks the estimate as low confidence and widens the range.
+
+Each estimate is recorded as `reports/estimate-<timestamp>/estimate.json`. The estimate is scene- and machine-specific; rerun it after material scene, engine, device, resolution, or render-setting changes.
+
 ## Development target
 
 Use Blender 4.2 or later. The add-on uses only Blender's bundled Python API and has no external dependencies.
@@ -30,9 +38,10 @@ Follow [the fixture instructions](fixtures/README.md), capture settings at each 
 
 1. Capture current settings as a stable JSON record. **Done**
 2. Render a selected configuration matrix and measure elapsed time. **Done**
-3. Compare output against a high-sample reference.
-4. Recommend configurations for a chosen time budget.
-5. Evaluate new adaptive-sampling policies against the baseline.
+3. Estimate a selected target from two opt-in pilot renders. **Done**
+4. Compare output against a high-sample reference.
+5. Learn from ordinary completed renders and recommend configurations for a chosen time budget.
+6. Evaluate new adaptive-sampling policies against the baseline.
 
 ## License
 
