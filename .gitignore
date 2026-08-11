@@ -4,3 +4,5 @@ __pycache__/
 *.blend2
 reports/*.json
 
+experiments/
+
