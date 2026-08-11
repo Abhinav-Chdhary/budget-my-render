@@ -2,7 +2,7 @@
 
 An open-source Blender add-on for making render-time trade-offs visible and reproducible.
 
-The first milestone captures the current Cycles render settings as JSON. The next milestone will render a small configuration matrix and report a time-versus-quality curve.
+The add-on captures current Cycles settings and can run a sample-count matrix, saving each image and its elapsed render time in one JSON report.
 
 ## Install the development add-on
 
@@ -10,9 +10,13 @@ The first milestone captures the current Cycles render settings as JSON. The nex
 2. Open `addon/budget_my_render.py` in Blender's Text Editor.
 3. Click **Run Script**.
 4. In the 3D Viewport, press `N` and open the **Render Budget** tab.
-5. Select **Cycles** in Render Properties, then click **Capture Settings Snapshot**.
+5. Select **Cycles** in Render Properties.
+6. Enter comma-separated **Max samples** values, such as `16, 64, 256, 1024`.
+7. Click **Run Sample Benchmark**. Blender renders each value serially; its normal UI will be unavailable while each render is running.
 
-If the current `.blend` file has been saved, the report is written to a sibling `reports/` folder. For an unsaved file, it is written to Blender's temporary directory.
+If the current `.blend` file has been saved, each run is written to a sibling `reports/benchmark-<timestamp>/` folder. That folder contains one image per sample count and `benchmark.json` with the timings and captured settings. For an unsaved file, it is written to Blender's temporary directory.
+
+The runner restores the scene's original max-samples value and render output path when it finishes or a render errors. It does not change adaptive sampling, denoising, resolution, device, or any other quality setting: hold those constant for a fair comparison.
 
 ## Development target
 
@@ -25,7 +29,7 @@ Follow [the fixture instructions](fixtures/README.md), capture settings at each 
 ## Roadmap
 
 1. Capture current settings as a stable JSON record. **Done**
-2. Render a selected configuration matrix and measure elapsed time.
+2. Render a selected configuration matrix and measure elapsed time. **Done**
 3. Compare output against a high-sample reference.
 4. Recommend configurations for a chosen time budget.
 5. Evaluate new adaptive-sampling policies against the baseline.

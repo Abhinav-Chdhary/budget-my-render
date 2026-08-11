@@ -17,3 +17,4 @@
 
 - The first add-on deliberately records settings only; it does not claim to optimise them.
 - JSON is used so the upcoming benchmark runner can append measured renders without changing the reporting format.
+- The benchmark runner keeps adaptive sampling and denoising unchanged. If adaptive sampling is enabled, the values in the UI and report are maximum sample caps rather than guaranteed sample counts.
