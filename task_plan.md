@@ -1,4 +1,39 @@
-# Task Plan: Budget My Render Release Hardening
+# Task Plan: Budget My Render Accuracy Study
+
+## Goal
+
+Generate reproducible representative Cycles fixtures, measure pilot-model error on the user's real hardware, and produce evidence for the next release's uncertainty ranges.
+
+## Phases
+
+- [x] Phase 1: Define the controlled measurement protocol and fixture coverage.
+- [x] Phase 2: Implement the Blender fixture-and-measurement runner.
+- [x] Phase 3: Implement offline report analysis and regression tests.
+- [ ] Phase 4: Run the study in desktop Blender and interpret the evidence.
+
+## Key Questions
+
+1. What error distribution does the two-point model show across representative Cycles workloads?
+2. Are the current fixed uncertainty ranges wide enough, or should they be changed by workload/confidence?
+3. How does adaptive sampling alter estimator accuracy?
+
+## Decisions Made
+
+- [Protocol]: Use 16- and 64-sample pilots, then compare their linear prediction to measured 256-sample references with adaptive sampling disabled.
+- [Fixtures]: Generate interior, glossy, transparent, volume, and curve-hair scenes locally so the study is reproducible without redistributing third-party assets.
+- [Evidence]: Keep raw timing JSON and calculate aggregate error separately in ordinary Python.
+
+## Errors Encountered
+
+- Blender command mode crashes during Metal startup in this environment, so the measurement runner must be executed in the user's normal desktop Blender session.
+
+## Status
+
+**Ready for desktop measurement** — the fixture runner, report analyzer, and tests are complete; the real timing study must run in the user's Blender session.
+
+---
+
+# Historical Task Plan: Budget My Render Release Hardening
 
 ## Goal
 

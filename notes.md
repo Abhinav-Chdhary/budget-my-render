@@ -1,5 +1,14 @@
 # Notes: Budget My Render Bootstrap
 
+## Accuracy-study protocol (2026-08-14)
+
+- `benchmarks/run_accuracy_study.py` creates five local Cycles fixtures with no third-party assets: interior, glossy, transparent, volume, and curve hair.
+- Each repeat uses 16 and 64 sample pilots, predicts a 256-sample render, then measures that reference immediately with adaptive sampling and denoising disabled.
+- `benchmarks/analyze_accuracy.py` computes mean, median, P90, and maximum absolute percentage error, then rounds the P90 up to a conservative 5% uncertainty increment (never below 25%).
+- Results represent only the tested Blender version, device, resolution, settings, and fixture mix; they should inform, not replace, the artist-facing limitation statement.
+
+---
+
 ## Release-hardening findings (2026-08-14)
 
 - Blender Extensions require a `blender_manifest.toml` and an `__init__.py` in the installed ZIP. The manifest must declare a semantic version, SPDX license, maintainer, type, and Blender minimum version (at least 4.2).
