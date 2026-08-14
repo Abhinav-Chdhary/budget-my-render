@@ -9,9 +9,9 @@ Produce a validated Blender 4.2+ extension package that safely scopes calibratio
 - [x] Phase 1: Audit release blockers and define conservative correctness rules.
 - [x] Phase 2: Harden calibration identity, reporting, and failure handling.
 - [x] Phase 3: Convert the development script into an extension package with a manifest.
-- [ ] Phase 4: Add automated tests and validate the built artifact.
+- [x] Phase 4: Add automated tests and validate the built artifact.
 - [x] Phase 5: Prepare the desktop-Blender validation matrix and release handoff.
-- [ ] Phase 6: Publish the tested extension ZIP through a GitHub Release.
+- [x] Phase 6: Publish the tested extension ZIP through a GitHub Release.
 
 ## Key Questions
 
@@ -35,7 +35,7 @@ Produce a validated Blender 4.2+ extension package that safely scopes calibratio
 
 ## Status
 
-**Awaiting one user install check** — the 0.5.1 fix is implemented and tested locally; its public GitHub Release is gated on successful Install-from-Disk validation.
+**Complete** — version 0.5.1 was installed through Blender's normal Install-from-Disk flow, ran an estimate successfully, and was published as a public GitHub Release.
 
 ---
 
