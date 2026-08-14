@@ -84,6 +84,21 @@ class AddonLogicTests(unittest.TestCase):
         finally:
             self.addon.calibration_fingerprint = original_fingerprint
 
+    def test_fingerprint_handles_bytes_returned_by_blender_api(self):
+        original_render_settings = self.addon.render_settings_fingerprint
+        original_scene_content = self.addon.scene_content_fingerprint
+        original_environment = self.addon.environment_identity
+        self.addon.render_settings_fingerprint = lambda _scene: "{}"
+        self.addon.scene_content_fingerprint = lambda _scene: "scene"
+        self.addon.environment_identity = lambda _scene: {"build_platform": b"darwin-arm64"}
+        try:
+            fingerprint = self.addon.calibration_fingerprint(object())
+        finally:
+            self.addon.render_settings_fingerprint = original_render_settings
+            self.addon.scene_content_fingerprint = original_scene_content
+            self.addon.environment_identity = original_environment
+        self.assertEqual(len(fingerprint), 64)
+
     def test_scene_updates_do_not_invalidate_target_sample_reuse(self):
         scene = types.SimpleNamespace(render_budget_calibration_available=True)
         update = types.SimpleNamespace(id=types.SimpleNamespace(bl_rna=types.SimpleNamespace(identifier="Scene")))

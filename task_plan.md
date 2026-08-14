@@ -31,10 +31,11 @@ Produce a validated Blender 4.2+ extension package that safely scopes calibratio
 - The Blender executable is not installed or on `PATH`, so the automated build script correctly stopped with exit code 127 before it could create or validate the distributable ZIP. Run it with `BLENDER_BIN` pointing to a desktop Blender executable.
 - A verification shell snippet initially used zsh's reserved `status` variable; rerunning it with `build_result` completed normally. No repository files were affected.
 - Blender is available at `/Applications/Blender.app`, but its command-mode extension validation crashes during startup with the known Metal fault. The Computer Use environment is not approved to operate Blender's desktop UI, so the final Install-from-Disk check must be completed locally by the user.
+- The first manual 0.5.0 installation exposed Blender 5.2 returning a `bytes` build-platform field; fingerprint JSON serialization crashed while drawing the panel. Version 0.5.1 normalizes non-JSON Blender values and has a regression test for this case.
 
 ## Status
 
-**Awaiting one user install check** — release source commit `fc646a9` is on `origin/main`; the exact ZIP has been assembled locally, but public GitHub Release publication is gated on successful Install-from-Disk validation.
+**Awaiting one user install check** — the 0.5.1 fix is implemented and tested locally; its public GitHub Release is gated on successful Install-from-Disk validation.
 
 ---
 

@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Budget My Render",
     "author": "Abhinav Chdhary",
-    "version": (0, 5, 0),
+    "version": (0, 5, 1),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Render Budget",
     "description": "Estimate Cycles render time from opt-in local pilot renders",
@@ -100,6 +100,18 @@ def format_duration(seconds):
     return f"{minutes}m {seconds:02d}s" if minutes else f"{seconds}s"
 
 
+def _stable_value(value):
+    """Convert common Blender property values into JSON-safe, stable values."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="backslashreplace")
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    try:
+        return list(value)
+    except TypeError:
+        return str(value)
+
+
 def render_settings_fingerprint(scene):
     cycles = scene.cycles
     settings = {
@@ -114,17 +126,7 @@ def render_settings_fingerprint(scene):
             for name in ("max_bounces", "diffuse_bounces", "glossy_bounces", "transmission_bounces", "volume_bounces", "transparent_max_bounces")
         },
     }
-    return json.dumps(settings, sort_keys=True, separators=(",", ":"))
-
-
-def _stable_value(value):
-    """Convert common Blender property values into JSON-safe, stable values."""
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    try:
-        return list(value)
-    except TypeError:
-        return str(value)
+    return json.dumps(settings, sort_keys=True, separators=(",", ":"), default=_stable_value)
 
 
 def _node_signature(node):
@@ -186,7 +188,9 @@ def scene_content_fingerprint(scene):
         },
         "objects": objects,
     }
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=_stable_value
+    ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -228,7 +232,8 @@ def calibration_fingerprint(scene):
         "scene_content": scene_content_fingerprint(scene),
         "environment": environment_identity(scene),
     }
-    return hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"), default=_stable_value).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def calibration_is_valid(scene):
@@ -367,7 +372,7 @@ class RENDERBUDGET_OT_estimate_render_time(bpy.types.Operator):
         }
         try:
             report_path = report_directory / "estimate.json"
-            report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+            report_path.write_text(json.dumps(report, indent=2, default=_stable_value) + "\n", encoding="utf-8")
         except (OSError, TypeError, ValueError) as error:
             self.report({"WARNING"}, f"Estimated {format_duration(estimate['seconds'])}; report was not saved: {error}")
             return {"FINISHED"}
