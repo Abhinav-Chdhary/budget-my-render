@@ -1,4 +1,44 @@
-# Task Plan: Budget My Render Bootstrap
+# Task Plan: Budget My Render Release Hardening
+
+## Goal
+
+Produce a validated Blender 4.2+ extension package that safely scopes calibration to compatible scene, software, and machine state, with automated regression tests and a user-run desktop validation checklist.
+
+## Phases
+
+- [x] Phase 1: Audit release blockers and define conservative correctness rules.
+- [x] Phase 2: Harden calibration identity, reporting, and failure handling.
+- [x] Phase 3: Convert the development script into an extension package with a manifest.
+- [ ] Phase 4: Add automated tests and validate the built artifact.
+- [x] Phase 5: Prepare the desktop-Blender validation matrix and release handoff.
+- [ ] Phase 6: Publish the tested extension ZIP through a GitHub Release.
+
+## Key Questions
+
+1. Can a stored calibration be safely reused only when the scene, hardware, and render configuration are compatible?
+2. Does the generated ZIP validate and install as a Blender Extension without external dependencies?
+3. Which remaining tests must run in desktop Blender on the user's hardware?
+
+## Decisions Made
+
+- [Calibration]: Prefer conservative invalidation over silently reusing a potentially stale estimate.
+- [Packaging]: Target the Blender Extension format introduced in Blender 4.2; retain no duplicate legacy package.
+- [Testing]: Unit-test pure logic outside Blender and reserve real rendering/UI acceptance tests for desktop Blender.
+
+## Errors Encountered
+
+- Blender 5.2.0 LTS crashes during headless startup while initialising the Metal backend; no headless render/UI acceptance test is available in this environment.
+- The Blender executable is not installed or on `PATH`, so the automated build script correctly stopped with exit code 127 before it could create or validate the distributable ZIP. Run it with `BLENDER_BIN` pointing to a desktop Blender executable.
+- A verification shell snippet initially used zsh's reserved `status` variable; rerunning it with `build_result` completed normally. No repository files were affected.
+- Blender is available at `/Applications/Blender.app`, but its command-mode extension validation crashes during startup with the known Metal fault. The Computer Use environment is not approved to operate Blender's desktop UI, so the final Install-from-Disk check must be completed locally by the user.
+
+## Status
+
+**Ready for desktop validation** — source tests and static manifest checks pass; building and real Cycles acceptance require the user's Blender installation.
+
+---
+
+# Historical Task Plan: Budget My Render Bootstrap
 
 ## Goal
 

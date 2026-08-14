@@ -1,0 +1,15 @@
+schema_version = "1.0.0"
+
+id = "budget_my_render"
+version = "0.5.0"
+name = "Budget My Render"
+tagline = "Estimate Cycles render time from local pilot renders"
+maintainer = "Abhinav Chdhary"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+license = ["SPDX:MIT"]
+copyright = ["2026 Abhinav Chdhary"]
+
+[permissions]
+files = "Write local JSON estimate reports"
