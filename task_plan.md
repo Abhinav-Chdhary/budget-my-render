@@ -9,7 +9,7 @@ Generate reproducible representative Cycles fixtures, measure pilot-model error 
 - [x] Phase 1: Define the controlled measurement protocol and fixture coverage.
 - [x] Phase 2: Implement the Blender fixture-and-measurement runner.
 - [x] Phase 3: Implement offline report analysis and regression tests.
-- [ ] Phase 4: Run the study in desktop Blender and interpret the evidence.
+- [x] Phase 4: Run the study in desktop Blender and interpret the evidence.
 
 ## Key Questions
 
@@ -22,6 +22,7 @@ Generate reproducible representative Cycles fixtures, measure pilot-model error 
 - [Protocol]: Use 16- and 64-sample pilots, then compare their linear prediction to measured 256-sample references with adaptive sampling disabled.
 - [Fixtures]: Generate interior, glossy, transparent, volume, and curve-hair scenes locally so the study is reproducible without redistributing third-party assets.
 - [Evidence]: Keep raw timing JSON and calculate aggregate error separately in ordinary Python.
+- [Range]: Retain the existing ±25% non-adaptive range. The first ten-run study has a 6.67% P90 and 8.31% maximum error, but it represents one hardware/Blender configuration and one target sample count.
 
 ## Errors Encountered
 
@@ -29,7 +30,7 @@ Generate reproducible representative Cycles fixtures, measure pilot-model error 
 
 ## Status
 
-**Ready for desktop measurement** — the fixture runner, report analyzer, and tests are complete; the real timing study must run in the user's Blender session.
+**Initial study complete** — the measured data supports the existing conservative range. Further devices, 1024-sample references, and adaptive-sampling runs are the next evidence set.
 
 ---
 

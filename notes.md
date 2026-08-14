@@ -7,6 +7,12 @@
 - `benchmarks/analyze_accuracy.py` computes mean, median, P90, and maximum absolute percentage error, then rounds the P90 up to a conservative 5% uncertainty increment (never below 25%).
 - Results represent only the tested Blender version, device, resolution, settings, and fixture mix; they should inform, not replace, the artist-facing limitation statement.
 
+### First result (2026-08-15)
+
+- Source: `/Users/apple/Documents/Blender/accuracy-study-20260814T183702Z.json`.
+- Blender 5.2.0 LTS on macOS arm64, 512 × 512, fixed sampling: ten results yielded 2.85% mean, 2.27% median, 6.67% P90, and 8.31% maximum absolute error.
+- Keep the current non-adaptive ±25% range; the data is promising but not broad enough to narrow a public promise.
+
 ---
 
 ## Release-hardening findings (2026-08-14)
