@@ -34,7 +34,7 @@ Produce a validated Blender 4.2+ extension package that safely scopes calibratio
 
 ## Status
 
-**Ready for desktop validation** — source tests and static manifest checks pass; building and real Cycles acceptance require the user's Blender installation.
+**Awaiting one user install check** — release source commit `fc646a9` is on `origin/main`; the exact ZIP has been assembled locally, but public GitHub Release publication is gated on successful Install-from-Disk validation.
 
 ---
 
